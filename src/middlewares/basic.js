@@ -12,7 +12,7 @@ module.exports = {
     },
     middleware: function(config, req, res) {
 
-        if (config.user === undefined) {
+        if (config.user == undefined || config.user == null) {
             throw new Error("http basic middleware wasn't configure");
         }
 

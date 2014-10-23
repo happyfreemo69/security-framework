@@ -54,8 +54,13 @@ Security.prototype.validate = function() {
         // First, we check is no new method are not configured for rule
         _.each(methodRules, function(method) {
             if (_.isPlainObject(method)) {
-                self.allowedMethodNames = _.union(self.allowedMethodNames, _.keys(method));
-                self.registerMiddlewares(method);
+
+                if(_.keys(method).length > 0) {
+                    self.allowedMethodNames = _.union(self.allowedMethodNames, _.keys(method));
+                    self.registerMiddlewares(method);
+                } else {
+                    throw new Error("you must specified key for validation method on rule")
+                }
             }
         });
 
@@ -89,7 +94,7 @@ Security.prototype.registerMiddlewares = function(objects) {
                 object.config = _.merge(defaultConfig, object.config);
 
             } else {
-                throw new Error("unknow validation method for key " + object.validation)
+                throw new Error("unknow validation method for key " + key)
             }
         }
 
@@ -141,20 +146,24 @@ Security.prototype.registerMiddlewaresFromPath = function(dir) {
 
     if (paths.length > 0) {
         _.each(paths, function(normalizedPath) {
-            fs.readdirSync(normalizedPath).forEach(function(file) {
-                var p = path.join(normalizedPath, file);
-                var module = require(p);
+            try {
+                fs.readdirSync(normalizedPath).forEach(function(file) {
+                    var p = path.join(normalizedPath, file);
+                    var module = require(p);
 
-                if (module.config != undefined && module.name != undefined && module.middleware != undefined) {
+                    if (module.config != undefined && module.name != undefined && module.middleware != undefined) {
 
-                    self.validationsForMethod[module.name] = module.middleware;
-                    self.allowedMethodNames.push(module.name);
-                    self.optionsForMethod[module.name] = module.config;
+                        self.validationsForMethod[module.name] = module.middleware;
+                        self.allowedMethodNames.push(module.name);
+                        self.optionsForMethod[module.name] = module.config;
 
-                } else {
-                    throw new Error("invalid middleware at path ", p)
-                }
-            });
+                    } else {
+                        throw new Error("invalid middleware at path ", p)
+                    }
+                });
+            } catch (e) {
+                throw new Error("Invalid path: '"+ normalizedPath+"'")
+            }
         });
     }  
 }
@@ -165,11 +174,10 @@ Security.prototype.getSecurityMiddleware = function(ruleName) {
     if(this.isValidated == false) {
         throw new Error("you must validate security configuration");
     }
-
+ 
     return function(req, res, next) {
 
         var rule = self.rules[ruleName];
-
         if (rule == undefined) {
             throw new Error("invalid rule " + ruleName);
         }
@@ -194,21 +202,29 @@ Security.prototype.getSecurityMiddleware = function(ruleName) {
                 _.each(_.keys(method), function(k) {
                     var config = self.optionsForMethod[k];
 
+                    var fn = self.validationsForMethod[k];
+                    if(!_.isFunction(fn)) {
+                        throw new Error('validation method for key ' + k + ' are not an function')
+                    }
                     middlewares.push({
-                        fn: self.validationsForMethod[k],
+                        fn: fn,
                         args: [config, req, res]
                     });
                 });
 
             } else {
                 var config = self.optionsForMethod[key];
+                var fn = self.validationsForMethod[key];
+
+                if (!_.isFunction(fn)) {
+                    throw new Error('validation method for key ' + key + ' are not an function')
+                }
                 middlewares.push({
-                    fn: self.validationsForMethod[key],
+                    fn: fn,
                     args: [config, req, res]
                 });
             }
         });
-
 
         if (mode == "or") {
             self.handleOrConcurrencyMiddlewares(middlewares, req, res, next);
@@ -226,6 +242,10 @@ Security.prototype.handleOrConcurrencyMiddlewares = function(middlewares, req, r
     var p = _.first(middlewares);
     var promise = p.fn.apply(self, p.args);
 
+    if(!self.isPromise(promise)){
+        throw new Error("middleware is not an promise");
+    };
+
     promise.then(function(result) {
 
         if (req.user != undefined) {
@@ -237,7 +257,7 @@ Security.prototype.handleOrConcurrencyMiddlewares = function(middlewares, req, r
         next();
 
     }).catch(function(e) {
-
+ 
         middlewares = _.rest(middlewares);
         if (middlewares.length == 0) {
             res.json(401, 'Access denied ');
@@ -253,6 +273,10 @@ Security.prototype.handleAndConcurrencyMiddlewares = function(middlewares, req, 
     var p = _.first(middlewares);
     var promise = p.fn.apply(self, p.args);
 
+    if(!self.isPromise(promise)){
+        throw new Error("middleware is not an promise");
+    };
+    
     promise.then(function(result) {
 
         if (req.user != undefined) {
@@ -269,7 +293,7 @@ Security.prototype.handleAndConcurrencyMiddlewares = function(middlewares, req, 
             self.handleAndConcurrencyMiddlewares(middlewares, req, res, next);
         }
 
-    }).catch(function(e) {
+    }).catch(function(e) { 
         res.json(401, 'Access denied ');
     })
 }
