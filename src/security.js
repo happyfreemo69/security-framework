@@ -1,11 +1,13 @@
-module.exports = function(oauth, settings) {
-    return new Security(oauth, settings);
+module.exports = function(settings) {
+    return new Security(settings);
 }
 
-var _ = require('lodash'),
-        basic_auth = require('http-auth');
-var request = require("request");
+var _ = require('lodash');
 var Promise = require('bluebird');
+var fs = require('fs');
+var path = require('path');
+
+
 /**
  * AuthoriseClient
  *
@@ -15,11 +17,15 @@ function Security(settings) {
     //this.settings = settings;
     this.rules = settings.rules;
     this.methods = settings.methods;
+    this.settings = settings;
+    
     this.allowedMethodNames = [];
     this.validationsForMethod = [];
     this.optionsForMethod = [];
+    this.registerDefaultsMiddlewares();
+    this.registerMiddlewaresFromPath(settings.pathMiddlewares);
 
-    this.registerDefaultValidationsForMethod();
+    this.isValidated = false;
     return this;
 }
 
@@ -28,6 +34,7 @@ function Security(settings) {
  * @returns {undefined}
  */
 Security.prototype.validate = function() {
+
     var self = this;
 
     // Verifiy settings
@@ -39,7 +46,7 @@ Security.prototype.validate = function() {
     self.allowedMethodNames = _.union(self.allowedMethodNames, _.keys(this.methods));
 
     // register middlewares
-    self.addValidationMethod(this.methods);
+    self.registerMiddlewares(this.methods);
 
     _.each(this.rules, function(rules) {
         var methodRules = rules.methods;
@@ -48,7 +55,7 @@ Security.prototype.validate = function() {
         _.each(methodRules, function(method) {
             if (_.isPlainObject(method)) {
                 self.allowedMethodNames = _.union(self.allowedMethodNames, _.keys(method));
-                self.addValidationMethod(method);
+                self.registerMiddlewares(method);
             }
         });
 
@@ -61,9 +68,12 @@ Security.prototype.validate = function() {
             }
         })
     });
+
+    self.isValidated = true;
+
 }
 
-Security.prototype.addValidationMethod = function(objects) {
+Security.prototype.registerMiddlewares = function(objects) {
 
     var self = this;
     _.forIn(objects, function(object, key) {
@@ -92,115 +102,69 @@ Security.prototype.addValidationMethod = function(objects) {
                 throw new Error("unknow validation method for key " + key)
             }
         }
-
-
-
+ 
         self.validationsForMethod[key] = object.validation;
+
+        if(self.optionsForMethod[key] != undefined) {
+            var defaultConfig = _.cloneDeep(self.optionsForMethod[key])
+            object.config = _.merge(defaultConfig, object.config);
+        }
+
         self.optionsForMethod[key] = object.config;
     })
 }
 
-Security.prototype.registerDefaultValidationsForMethod = function() {
+Security.prototype.registerDefaultsMiddlewares = function() {
     var self = this;
+ 
+    var normalizedPath = path.join(__dirname, "middlewares");
 
-    self.validationsForMethod["oauth"] = self.middlewareOauth;
-    self.validationsForMethod["http"] = self.middlewareHttpBasic;
-    self.validationsForMethod["guest"] = function(config, req, res) {
+    fs.readdirSync(normalizedPath).forEach(function(file) {
+        var module = require("./middlewares/" + file);
+ 
+        self.validationsForMethod[module.name] = module.middleware;
+        self.allowedMethodNames.push(module.name);
+        self.optionsForMethod[module.name] = module.config;
 
-        return new Promise(function(resolve, reject) {
-            resolve();
-        })
-    };
-
-    self.allowedMethodNames.push("oauth");
-    self.allowedMethodNames.push("http");
-    self.allowedMethodNames.push("guest");
-}
-
-Security.prototype.middlewareOauth = function(config, req, res) {
-
-    if (config === undefined) {
-        throw new Error("oauth middleware wasn't configure")
-    }
-
-    return new Promise(function(resolve, reject) {
-        var oAuthAccessToken = "";
-
-        // if user provided method to extract access token, use it
-        if (config.accessTokenExtractor != undefined) {
-            oAuthAccessToken = config.accessTokenExtractor(config, req, res);
-        } else { // Default method are in "authorization" header with bearer theaccestoken
-            var reg = new RegExp("^bearer ");
-            var authorization = req.headers.authorization;
-            if (authorization && reg.test(authorization.toLowerCase())) {
-                oAuthAccessToken = authorization.toLowerCase().replace("bearer ", "");
-            }
-
-            if (req.query.access_token) {
-                oAuthAccessToken = req.query.access_token;
-            }
-
-        }
-
-        if (oAuthAccessToken != null) {
-
-            request.get(config.endpoint, {
-                auth: {
-                    bearer: oAuthAccessToken
-                }
-            }, function(error, response, body) {
-                if (!error && response.statusCode == 200) {
-
-                    var user = JSON.parse(response.body);
-                    return resolve(user);
-                } else {
-
-                    return reject();
-                }
-            });
-        } else {
-            return reject();
-        }
     });
 }
 
-Security.prototype.middlewareHttpBasic = function(config, req, res) {
+Security.prototype.registerMiddlewaresFromPath = function(dir) {
+    var self = this;
 
-    if (config === undefined) {
-        throw new Error("http basic middleware wasn't configure");
+    var paths = [];
+    if(_.isString(dir)) {
+        paths = [dir];
+    } else if (_.isArray(dir)) {
+        paths = dir;
     }
 
-    return new Promise(function(resolve, reject) {
-        var reg = new RegExp("^basic ");
-        var authorization = req.headers.authorization;
-        if (authorization && reg.test(authorization.toLowerCase())) {
-            var auth = basic_auth.basic({
-                realm: config.realm
-            }, function(username, password, callback) { // Custom authentication method.
-                callback(username === config.user && password === config.password);
-            });
+    if (paths.length > 0) {
+        _.each(paths, function(normalizedPath) {
+            fs.readdirSync(normalizedPath).forEach(function(file) {
+                var p = path.join(normalizedPath, file);
+                var module = require(p);
 
-            auth.isAuthenticated(req, function(result) {
-                if (result && result.user != undefined) {
-                    return resolve({
-                        username: result.user
-                    });
+                if (module.config != undefined && module.name != undefined && module.middleware != undefined) {
+
+                    self.validationsForMethod[module.name] = module.middleware;
+                    self.allowedMethodNames.push(module.name);
+                    self.optionsForMethod[module.name] = module.config;
+
                 } else {
-                    return reject();
+                    throw new Error("invalid middleware at path ", p)
                 }
-            })
-
-            // return basic_auth.connect(auth)(req, res, next);
-        } else {
-            return reject();
-        }
-
-    })
+            });
+        });
+    }  
 }
 
 Security.prototype.getSecurityMiddleware = function(ruleName) {
 
     var self = this;
+    if(this.isValidated == false) {
+        throw new Error("you must validate security configuration");
+    }
 
     return function(req, res, next) {
 

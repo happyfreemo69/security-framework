@@ -10,19 +10,15 @@ var Promise = require('bluebird');
 var _ = require('lodash');
 
 var express = require('express');
-var request = require('supertest')
+var request = require('supertest');
+
+
+var security = require('../src/security')
 
 describe('Sample', function() {
     it('should good', function() {
 
-        security.isAllowed(role);
-        security.setUser(object, roles);
-        security.addRoles(roles);
-
-        security.secureRoute(route, role);
-
-
-        return true;
+  
     });
 
 })
