@@ -432,6 +432,54 @@ describe('Security', function() {
 
         });
 
+        it('should pass an oauth test with custom accessTokenExtractor ', function(done) {
+
+            var security = require('../src/security')({
+                pathMiddlewares: process.cwd() + "/test/middlewares",
+                methods: {
+                    oauth: {
+                        config: {
+                            endpoint: "http://localhost:3000/me",
+                            accessTokenExtractor: function(config, req, res) {
+                                return req.query.at;
+                            }
+                        }
+                    }
+                },
+                rules: {
+                    me: {
+                        methods: ['oauth']
+                    }
+                }
+            });
+            security.validate();
+
+            var req = {
+                headers: {},
+                query: {
+                    at: "user_a"
+                }
+            };
+
+            security.getSecurityMiddleware("me")(req,
+                    {
+                        json: function(statusCode, message) {
+                            if (statusCode == 401) {
+                                done(new Error("received " + statusCode + " " + message))
+                            }
+                        }
+                    },
+            function() {
+                if (req.user != undefined) {
+                    done()
+                } else {
+                    done(new Error("oauth must set an user on req.user"))
+                }
+            });
+
+        });
+
+
         it('should pass an oauth test with invalid token', function(done) {
 
             var security = require('../src/security')({
@@ -783,6 +831,94 @@ describe('Security', function() {
                             }
                         }
                     },
+            function() {
+                done();
+            });
+
+        });
+
+        it('should override oauth', function(done) {
+
+            var security = require('../src/security')({
+                pathMiddlewares: process.cwd() + "/test/middlewares",
+                methods: {
+                    oauth: {
+                        config: {
+                            secretKey: "dontmakeinproduction"
+                        },
+                        validation: function(config, req, res) {
+                            return new Promise(function(resolve, reject) {
+                                if (req.query.secret == config.secretKey) {
+                                    return resolve();
+                                }
+                            })
+                        }
+                    }
+                },
+                rules: {
+                    me: {
+                        methods: ["oauth"]
+                    }
+                }
+            });
+
+            security.validate();
+            security.getSecurityMiddleware("me")({
+                query: {
+                    secret: "dontmakeinproduction"
+                }
+            },
+                    {
+                        json: function(statusCode, message) {
+                            if (statusCode == 401) {
+                                done(new Error("received " + statusCode + " " + message))
+                            }
+                        }
+                    },
+            function() {
+                done();
+            });
+
+        });
+
+        it('should worked with extended method', function(done) {
+
+            var security = require('../src/security')({
+                methods: {
+                    oauth: {
+                        config: {
+                            endpoint: "http://localhost:3000/me",
+                        }
+                    },
+                    custom: {
+                        extends: 'oauth',
+                        config: {
+                            accessTokenExtractor: function(config, req, res) {
+                                return req.query.at;
+                            }
+                        }
+                    }
+                },
+                rules: {
+                    me: {
+                        methods: ['custom']
+                    }
+                }
+            });
+
+            security.validate();
+            security.getSecurityMiddleware("me")({
+                query: {
+                    at: "user_a"
+                }
+            },
+            {
+                json: function(statusCode, message) {
+                    if (statusCode == 401) {
+                        done(new Error("received " + statusCode + " " + message))
+                    }
+                }
+            },
             function() {
                 done();
             });
