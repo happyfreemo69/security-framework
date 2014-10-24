@@ -1,7 +1,7 @@
 {
   "name": "security-framework",
   "description": "Security Framework",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "licenses": [
     {
       "type": "MIT",
@@ -29,7 +29,9 @@
   ],
   "main": "src/main.js",
   "files": [
-    "src/main.js"
+    "src",
+    "test",
+    "gulpfile.js"
   ],
   "dependencies": {
     "bluebird": "^2.0",
