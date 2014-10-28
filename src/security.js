@@ -260,7 +260,7 @@ Security.prototype.handleOrConcurrencyMiddlewares = function(middlewares, req, r
  
         middlewares = _.rest(middlewares);
         if (middlewares.length == 0) {
-            res.json(401, 'Access denied ');
+            res.status(401).json('Access denied');
         } else {
             self.handleOrConcurrencyMiddlewares(middlewares, req, res, next);
         }
@@ -293,8 +293,8 @@ Security.prototype.handleAndConcurrencyMiddlewares = function(middlewares, req, 
             self.handleAndConcurrencyMiddlewares(middlewares, req, res, next);
         }
 
-    }).catch(function(e) { 
-        res.json(401, 'Access denied ');
+    }).catch(function(e) {
+        res.status(401).json('Access denied');
     })
 }
 
