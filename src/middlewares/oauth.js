@@ -21,6 +21,13 @@ module.exports = {
             }
 
             return oAuthAccessToken;
+        },
+        sendError: function(e, res){
+            if(e.response){
+                var err = JSON.parse(e.response.body);
+                return res.status(e.response.statusCode||500).json(err);
+            }
+            return res.status(401).json('Access denied - accessToken needed');
         }
     },
     middleware: function(config, req, res) {
@@ -28,15 +35,11 @@ module.exports = {
         if (config.endpoint == "") {
             throw new Error("oauth middleware wasn't configured")
         }
-
         return new Promise(function(resolve, reject) {
-            var oAuthAccessToken = "";
+            var oAuthAccessToken = config.accessTokenExtractor(config, req, res);
  
-            oAuthAccessToken = config.accessTokenExtractor(config, req, res);
- 
-            if (oAuthAccessToken != null) {
-
-                request.get(config.endpoint, {
+            if (oAuthAccessToken) {
+                return request.get(config.endpoint, {
                     auth: {
                         bearer: oAuthAccessToken
                     }
@@ -45,14 +48,11 @@ module.exports = {
 
                         var user = JSON.parse(response.body);
                         return resolve(user);
-                    } else {
-
-                        return reject();
                     }
+                    return reject({error: error, response:response});
                 });
-            } else {
-                return reject();
-            }
+            } 
+            return reject({error:'no accessToken'});
         });
     }
 }

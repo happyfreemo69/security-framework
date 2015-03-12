@@ -236,6 +236,12 @@ Security.prototype.getSecurityMiddleware = function(ruleName) {
     }
 }
 
+function handleError(p, res, e){
+    if(p.args[0].sendError){
+        return p.args[0].sendError(e, res);
+    }
+    return res.status(401).json('Access denied');
+}
 Security.prototype.handleOrConcurrencyMiddlewares = function(middlewares, req, res, next) {
     var self = this;
 
@@ -260,13 +266,11 @@ Security.prototype.handleOrConcurrencyMiddlewares = function(middlewares, req, r
  
         middlewares = _.rest(middlewares);
         if (middlewares.length == 0) {
-            res.status(401).json('Access denied');
-        } else {
-            self.handleOrConcurrencyMiddlewares(middlewares, req, res, next);
+            return handleError(p, res, e);
         }
+        return self.handleOrConcurrencyMiddlewares(middlewares, req, res, next);
     })
 }
-
 Security.prototype.handleAndConcurrencyMiddlewares = function(middlewares, req, res, next) {
     var self = this;
 
@@ -288,14 +292,12 @@ Security.prototype.handleAndConcurrencyMiddlewares = function(middlewares, req, 
         middlewares = _.rest(middlewares);
 
         if (middlewares.length == 0) {
-            next();
-        } else {
-            self.handleAndConcurrencyMiddlewares(middlewares, req, res, next);
+            return next();
         }
 
-    }).catch(function(e) {
-        res.status(401).json('Access denied');
-    })
+        return self.handleAndConcurrencyMiddlewares(middlewares, req, res, next);
+
+    }).catch(handleError.bind(null, p, res));
 }
 
 Security.prototype.isPromise = function(object) {
