@@ -25,8 +25,12 @@ module.exports = {
         sendError: function(e, res){
             if(e.response){
                 var err = JSON.parse(e.response.body);
+                if(e.response.statusCode === 401){
+                    res.setHeader('WWW-Authenticate', 'Bearer');
+                }
                 return res.status(e.response.statusCode||500).json(err);
             }
+            res.setHeader('WWW-Authenticate', 'Bearer');
             return res.status(401).json('Access denied - accessToken needed');
         }
     },
